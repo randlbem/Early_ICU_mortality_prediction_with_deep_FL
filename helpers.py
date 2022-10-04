@@ -239,6 +239,8 @@ class Trainer:
         self.threaded = threaded
         self.max_threads = max_threads
         self.random_state = random_state
+
+        self.split_log = "./splits.json"
         
         self.max_vitals = np.max([v[1].shape[0] for v in vitals])
         self.max_labs = np.max([l[1].shape[0] for l in labs])
@@ -637,8 +639,22 @@ class Trainer:
         # Calculate batch size:
         batch_size = int(512/n_clients)
 
+        # Init log file for batches:
+        with open(self.split_log, 'wt') as log:
+            log.write( '{\n')
+            log.write(f'  "n_folds":{n_folds:d},\n')
+            log.write(f'  "n_clients":{n_clients:d},\n')
+            log.write( '  "folds":[\n')
+
         # For each cross-validation-fold:
         for i_rest, i_test, fold in self.__split_test(icustays, n_folds=n_folds, n_labels=n_labels, shuffle=shuffle):
+
+            # Log fold:
+            with open(self.split_log, 'at') as log:
+                log.write( '    {\n')
+                log.write(f'      "fold":{fold:d},\n')
+                log.write(f'      "ids_test":[{",".join(str(id) for id in i_test):s}],\n')
+                log.write( '      "clients":[\n')
 
             # For each client:
             for i_train, i_valid, client in self.__split_valid(icustays, i_rest, n_clients=n_clients, n_labels=n_labels, shuffle=shuffle, stratify=stratify_clients):
@@ -664,6 +680,14 @@ class Trainer:
                     f'\nBatch size = {batch_size:d}' +
                     f'\n---------------------------------------------------------------------------'
                 )
+
+                # Log patients:
+                with open(self.split_log, 'at') as log:
+                    log.write( '        {\n')
+                    log.write(f'          "client":{client:d},\n')
+                    log.write(f'          "ids_train":[{",".join(str(id) for id in i_train):s}],\n')
+                    log.write(f'          "ids_valid":[{",".join(str(id) for id in i_valid):s}],\n')
+                    log.write( '        },\n')
 
                 # Build train- and validation pipelines:
                 with redirect_stdout(io.StringIO()) as out:
@@ -718,9 +742,19 @@ class Trainer:
 
                     # Print output:
                     self.flush_console()
+            
+            # Close fold in log:
+            with open(self.split_log, 'at') as log:
+                log.write( '      ]\n')
+                log.write( '    },\n')
 
             if use_threads:
                 self.__run_threads(threads)
+
+        # Close object in log:
+        with open(self.split_log, 'at') as log:
+            log.write( '  ]\n')
+            log.write( '}\n')
 
         for key in self.test_scores:
             self.test_scores[key] /= n_clients
@@ -759,11 +793,25 @@ class Trainer:
         # Calculate batch size:
         batch_size = int(512/n_clients)
 
+        # Init log file for batches:
+        with open(self.split_log, 'wt') as log:
+            log.write( '{\n')
+            log.write(f'  "n_folds":{n_folds:d},\n')
+            log.write(f'  "n_clients":{n_clients:d},\n')
+            log.write( '  "folds":[\n')
+
         # For each cross-validation-fold:
         for i_rest, i_test, fold in self.__split_test(icustays, n_folds=n_folds, n_labels=n_labels, shuffle=shuffle):
             
             # New normalization bounds:
             self.__init_normalization(icustays[i_rest])
+
+            # Log fold:
+            with open(self.split_log, 'at') as log:
+                log.write( '    {\n')
+                log.write(f'      "fold":{fold:d},\n')
+                log.write(f'      "ids_test":[{",".join(str(id) for id in i_test):s}],\n')
+                log.write( '      "clients":[\n')
 
             # Build client data splits:
             clients = {}
@@ -775,6 +823,14 @@ class Trainer:
                     f'\nBatch size = {batch_size:d}' +
                     f'\n---------------------------------------------------------------------------'
                 )
+
+                # Log patients:
+                with open(self.split_log, 'at') as log:
+                    log.write( '        {\n')
+                    log.write(f'          "client":{client:d},\n')
+                    log.write(f'          "ids_train":[{",".join(str(id) for id in i_train):s}],\n')
+                    log.write(f'          "ids_valid":[{",".join(str(id) for id in i_valid):s}],\n')
+                    log.write( '        },\n')
 
                 # Create datasets and model:
                 clients[client] = {
@@ -790,6 +846,11 @@ class Trainer:
                     optimizer=tf.keras.optimizers.Adam(0.01),
                     metrics=self.metrics
                 )
+
+            # Close fold in log:
+            with open(self.split_log, 'at') as log:
+                log.write( '      ]\n')
+                log.write( '    },\n')
 
             # Init global model weights:
             self.global_weights = self.__get_model_weights(clients[1]['model'])
@@ -918,5 +979,10 @@ class Trainer:
             del clients
             del scores
             del m
+
+        # Close object in log:
+        with open(self.split_log, 'at') as log:
+            log.write( '  ]\n')
+            log.write( '}\n')
 
         
