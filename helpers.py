@@ -611,7 +611,7 @@ class Trainer:
         return data
 
 
-    def evaluate(self, model, icustays, n_folds=5, n_clients=1, n_labels=2, shuffle=False, oversample=False, weighted=False, stratify_clients=False):
+    def evaluate(self, model, icustays, n_folds=5, n_clients=1, n_epochs=50, n_labels=2, patience=20, shuffle=False, oversample=False, weighted=False, stratify_clients=False):
         '''Evaluates a model.
 
         PARAMETERS
@@ -623,7 +623,11 @@ class Trainer:
 
             n_clients (int):            Number of local models (default: 1)
 
+            n_epochs (int):             Number of epochs (default: 50)
+
             n_labels (int):             Number of bins used for oversampling and weighting (default: 2)
+
+            patience (int):             Patience parameter for early stopping in epochs (default: 20)
 
             shuffle (bool):             Determines whether data is shuffeled before creating splits (default: False)
 
@@ -633,7 +637,7 @@ class Trainer:
         '''
 
         # Init properties:
-        self.__init_properties(n_clients, n_folds, 50, len(icustays))
+        self.__init_properties(n_clients, n_folds, n_epochs, len(icustays))
 
         # Multithreading variables:
         use_threads = n_clients > 1 and self.threaded
@@ -643,7 +647,11 @@ class Trainer:
         batch_size = int(512/n_clients)
 
         # Init log file for batches:
-        self.split_log = f"splits_lml{n_clients:d}.json" if n_clients > 1 else f"splits_cml.json"
+        if n_clients > 1:
+            self.split_log = f'data/min{self.min_los_icu:d}h/splits_lml{n_clients:d}.json'
+        else:
+            self.split_log = f'data/min{self.min_los_icu:d}h/splits_cml.json'
+        
         with open(self.split_log, 'wt') as log:
             log.write( '{\n')
             log.write(f'  "min_los_icu":{self.min_los_icu:d},\n')
@@ -706,7 +714,7 @@ class Trainer:
                 callbacks=[
                     tf.keras.callbacks.LearningRateScheduler(lambda epoch, eta: 0.5*eta if (epoch%5) == 0 and epoch > 0 else eta),
                     tf.keras.callbacks.EarlyStopping(
-                        patience=20,
+                        patience=patience,
                         monitor='val_loss',
                         restore_best_weights=True
                     )
@@ -720,7 +728,7 @@ class Trainer:
                         kwargs={
                             'client': client,
                             'fold': fold,
-                            'epochs': 50,
+                            'epochs': n_epochs,
                             'callbacks': callbacks, 
                             'data_train': data_train,
                             'data_valid': data_valid,
@@ -738,7 +746,7 @@ class Trainer:
                         m,
                         client=client,
                         fold=fold,
-                        epochs=50,
+                        epochs=n_epochs,
                         callbacks=callbacks,
                         data_train=data_train,
                         data_valid=data_valid,
@@ -765,7 +773,7 @@ class Trainer:
             self.test_scores[key] /= n_clients
 
 
-    def evaluateFL(self, model, icustays, n_folds=5, n_clients=1, n_rounds=50, n_labels=2, shuffle=False, oversample=False, weighted=False, stratify_clients=False):
+    def evaluateFL(self, model, icustays, n_folds=5, n_clients=1, n_rounds=50, n_epochs=1, n_labels=2, patience=20, shuffle=False, oversample=False, weighted=False, stratify_clients=False):
         '''Evaluates a model with federated learning.
 
         PARAMETERS
@@ -779,7 +787,11 @@ class Trainer:
 
             n_rounds (int):         Number of FL-rounds (default: 50)
 
+            n_epochs (int):         Number of local epochs (default: 1)
+
             n_labels (int):         Number of bins used for oversampling and weighting (default: 2)
+
+            patience (int):         Patience parameter for early stopping in FL-rounds (default: 20)
 
             shuffle (bool):         Determines whether data is shuffeled before creating splits (default: False)
 
@@ -799,7 +811,7 @@ class Trainer:
         batch_size = int(512/n_clients)
 
         # Init log file for batches:
-        self.split_log = f"splits_fl{n_clients:d}.json"
+        self.split_log = f'data/min{self.min_los_icu:d}h/splits_fl{n_clients:d}.json'
         with open(self.split_log, 'wt') as log:
             log.write( '{\n')
             log.write(f'  "min_los_icu":{self.min_los_icu:d},\n')
@@ -893,7 +905,7 @@ class Trainer:
                                 'client': client,
                                 'fold': fold,
                                 'fl_round': round,
-                                'epochs': 1,
+                                'epochs': n_epochs,
                                 'callbacks': callbacks, 
                                 'data_train': clients[client]['data_train'],
                                 'data_valid': clients[client]['data_valid']
@@ -911,7 +923,7 @@ class Trainer:
                             client=client,
                             fold=fold,
                             fl_round=round,
-                            epochs=1,
+                            epochs=n_epochs,
                             callbacks=callbacks, 
                             data_train=clients[client]['data_train'],
                             data_valid=clients[client]['data_valid']
@@ -941,7 +953,7 @@ class Trainer:
                     best_loss = (val_loss, round, copy.deepcopy(self.global_weights))
                     print(f'\nEarly stopping [round {round+1:d}]: Best loss {val_loss:.2f} stored for {len(self.global_weights):d} layers')
 
-                elif (round - best_loss[1]) >= 20:
+                elif (round - best_loss[1]) >= patience:
                     print(f'\nEarly stopping [round {round+1:d}]: Stopping training (Best round: {best_loss[1]+1:d})')
                     break
 
