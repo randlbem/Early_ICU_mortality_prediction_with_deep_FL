@@ -210,7 +210,7 @@ class ContinuousRecall(tf.keras.metrics.Recall):
 
 
 class Trainer:
-    def __init__(self, vitals, labs, loss, metrics, output_signature, threaded=True, max_threads=2, random_state=None):
+    def __init__(self, vitals, labs, loss, metrics, output_signature, min_los_icu, threaded=True, max_threads=2, random_state=None):
         '''Creates a new PipeBuilder-object.
 
         PARAMETERS
@@ -226,6 +226,8 @@ class Trainer:
 
             output_signature:                   tf-signature of the model in- and outputs
             
+            min_los_icu:                        Minimum length of stay in icu in hours (for logging purposes)
+
             threaded (bool):                    Wheter client-models are trained in parallel threads (default: True)
             
             random_state (int):                 Seed for the random generator (default: None)
@@ -240,6 +242,7 @@ class Trainer:
         self.max_threads = max_threads
         self.random_state = random_state
 
+        self.min_los_icu = min_los_icu
         self.split_log = "./splits.json"
         
         self.max_vitals = np.max([v[1].shape[0] for v in vitals])
@@ -640,8 +643,10 @@ class Trainer:
         batch_size = int(512/n_clients)
 
         # Init log file for batches:
+        self.split_log = f"splits_lml{n_clients:d}.json" if n_clients > 1 else f"splits_cml.json"
         with open(self.split_log, 'wt') as log:
             log.write( '{\n')
+            log.write(f'  "min_los_icu":{self.min_los_icu:d},\n')
             log.write(f'  "n_folds":{n_folds:d},\n')
             log.write(f'  "n_clients":{n_clients:d},\n')
             log.write( '  "folds":[\n')
@@ -653,7 +658,7 @@ class Trainer:
             with open(self.split_log, 'at') as log:
                 log.write( '    {\n')
                 log.write(f'      "fold":{fold:d},\n')
-                log.write(f'      "ids_test":[{",".join(str(id) for id in i_test):s}],\n')
+                log.write(f'      "ids_test":[{",".join(str(id) for id in icustays[i_test,0]):s}],\n')
                 log.write( '      "clients":[\n')
 
             # For each client:
@@ -685,9 +690,9 @@ class Trainer:
                 with open(self.split_log, 'at') as log:
                     log.write( '        {\n')
                     log.write(f'          "client":{client:d},\n')
-                    log.write(f'          "ids_train":[{",".join(str(id) for id in i_train):s}],\n')
-                    log.write(f'          "ids_valid":[{",".join(str(id) for id in i_valid):s}],\n')
-                    log.write( '        },\n')
+                    log.write(f'          "ids_train":[{",".join(str(id) for id in icustays[i_train,0]):s}],\n')
+                    log.write(f'          "ids_valid":[{",".join(str(id) for id in icustays[i_valid,0]):s}]\n')
+                    log.write( '        }' +  (',\n' if client < n_clients else '\n'))
 
                 # Build train- and validation pipelines:
                 with redirect_stdout(io.StringIO()) as out:
@@ -746,7 +751,7 @@ class Trainer:
             # Close fold in log:
             with open(self.split_log, 'at') as log:
                 log.write( '      ]\n')
-                log.write( '    },\n')
+                log.write( '    }' +  (',\n' if fold < n_folds else '\n'))
 
             if use_threads:
                 self.__run_threads(threads)
@@ -794,8 +799,10 @@ class Trainer:
         batch_size = int(512/n_clients)
 
         # Init log file for batches:
+        self.split_log = f"splits_fl{n_clients:d}.json"
         with open(self.split_log, 'wt') as log:
             log.write( '{\n')
+            log.write(f'  "min_los_icu":{self.min_los_icu:d},\n')
             log.write(f'  "n_folds":{n_folds:d},\n')
             log.write(f'  "n_clients":{n_clients:d},\n')
             log.write( '  "folds":[\n')
@@ -807,11 +814,10 @@ class Trainer:
             self.__init_normalization(icustays[i_rest])
 
             # Log fold:
-            with open(self.split_log, 'at') as log:
-                log.write( '    {\n')
-                log.write(f'      "fold":{fold:d},\n')
-                log.write(f'      "ids_test":[{",".join(str(id) for id in i_test):s}],\n')
-                log.write( '      "clients":[\n')
+            log_buffer  =  '    {\n'
+            log_buffer += f'      "fold":{fold:d},\n'
+            log_buffer += f'      "ids_test":[{",".join(str(id) for id in icustays[i_test,0]):s}],\n'
+            log_buffer +=  '      "clients":[\n'
 
             # Build client data splits:
             clients = {}
@@ -825,12 +831,11 @@ class Trainer:
                 )
 
                 # Log patients:
-                with open(self.split_log, 'at') as log:
-                    log.write( '        {\n')
-                    log.write(f'          "client":{client:d},\n')
-                    log.write(f'          "ids_train":[{",".join(str(id) for id in i_train):s}],\n')
-                    log.write(f'          "ids_valid":[{",".join(str(id) for id in i_valid):s}],\n')
-                    log.write( '        },\n')
+                log_buffer +=  '        {\n'
+                log_buffer += f'          "client":{client:d},\n'
+                log_buffer += f'          "ids_train":[{",".join(str(id) for id in icustays[i_train,0]):s}],\n'
+                log_buffer += f'          "ids_valid":[{",".join(str(id) for id in icustays[i_valid,0]):s}]\n'
+                log_buffer +=  '        }' +  (',\n' if client < n_clients else '\n')
 
                 # Create datasets and model:
                 clients[client] = {
@@ -849,8 +854,10 @@ class Trainer:
 
             # Close fold in log:
             with open(self.split_log, 'at') as log:
+                log.write( log_buffer)
                 log.write( '      ]\n')
-                log.write( '    },\n')
+                log.write( '    }' +  (',\n' if fold < n_folds else '\n'))
+            del log_buffer
 
             # Init global model weights:
             self.global_weights = self.__get_model_weights(clients[1]['model'])
