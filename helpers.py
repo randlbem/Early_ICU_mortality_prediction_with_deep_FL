@@ -7,7 +7,10 @@ import numpy as np
 import pickle
 import copy
 import io
-from keras import backend as K
+
+#--------------------------------------------------------------------------------#
+# Functions                                                                      #
+#--------------------------------------------------------------------------------#
 
 def windowed_range(n):
     labels = np.arange(n, dtype=np.float32) / float(n-1)
@@ -80,137 +83,12 @@ def stratified_split(data, n_splits, stratify=None, shuffle=False, random_state=
 
     return result
 
-
-class ContinuousAUC(tf.keras.metrics.AUC):
-    def __init__(self, num_thresholds=200, curve='ROC', summation_method='interpolation', name=None, dtype=None, num_labels=2, from_logits=False):
-        super().__init__(
-            num_thresholds=num_thresholds,
-            curve=curve,
-            summation_method=summation_method,
-            name=name,
-            dtype=dtype,
-            #thresholds=thresholds,
-            #multi_label=True,
-            #num_labels=num_labels,
-            #label_weights=None,
-            from_logits=from_logits
-        )
-
-        self.n_labels = tf.constant(num_labels, dtype=tf.int32)
-        self.t0 = np.empty(num_labels)
-        self.t1 = np.empty(num_labels)
-        for start, stop, i in windowed_range(self.n_labels):
-            self.t0[i] = start
-            self.t1[i] = stop
-        self.t0 = tf.constant(self.t0, dtype=tf.float32)
-        self.t1 = tf.constant(self.t1, dtype=tf.float32)
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        l = tf.zeros_like(y_true, dtype=tf.int32)
-        for i in range(self.n_labels):
-            t0 = tf.gather(self.t0, [i])
-            t1 = tf.gather(self.t1, [i])
-            l = tf.where(tf.math.logical_and(y_true>t0, y_true<=t1), tf.cast(i, dtype=tf.int32), tf.cast(l, dtype=tf.int32))
-        l = tf.keras.backend.one_hot(l, num_classes=self.n_labels)
-        l = tf.reshape(l, (-1, self.n_labels))
-        l = tf.slice(l, [0,1], [-1,-1])
-
-        e = tf.math.abs(tf.range(self.n_labels, dtype=tf.float32) - (tf.cast(self.n_labels-1, dtype=tf.float32) * y_pred))
-        e = tf.keras.backend.clip(e, 0., 1.)
-        e = tf.reshape(e, (-1, self.n_labels))
-        e = tf.slice(e, [0,1], [-1,-1])
-
-        return super().update_state(
-            l,
-            1. - e,
-            sample_weight=sample_weight
-        )
-
-
-class ContinuousPrecision(tf.keras.metrics.Precision):
-    def __init__(self, top_k=None, label_id=None, name=None, dtype=None, num_labels=2):
-        super().__init__(
-            #thresholds=thresholds,
-            top_k=top_k,
-            class_id=label_id,
-            name=name,
-            dtype=dtype
-        )
-
-        self.n_labels = tf.constant(num_labels, dtype=tf.int32)
-        self.t0 = np.empty(num_labels)
-        self.t1 = np.empty(num_labels)
-        for start, stop, i in windowed_range(self.n_labels):
-            self.t0[i] = start
-            self.t1[i] = stop
-        self.t0 = tf.constant(self.t0, dtype=tf.float32)
-        self.t1 = tf.constant(self.t1, dtype=tf.float32)
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        l = tf.zeros_like(y_true, dtype=tf.int32)
-        for i in range(self.n_labels):
-            t0 = tf.gather(self.t0, [i])
-            t1 = tf.gather(self.t1, [i])
-            l = tf.where(tf.math.logical_and(y_true>t0, y_true<=t1), tf.cast(i, dtype=tf.int32), tf.cast(l, dtype=tf.int32))
-        l = tf.keras.backend.one_hot(l, num_classes=self.n_labels)
-        l = tf.reshape(l, (-1, self.n_labels))
-        l = tf.slice(l, [0,1], [-1,-1])
-
-        e = tf.math.abs(tf.range(self.n_labels, dtype=tf.float32) - (tf.cast(self.n_labels-1, dtype=tf.float32) * y_pred))
-        e = tf.keras.backend.clip(e, 0., 1.)
-        e = tf.reshape(e, (-1, self.n_labels))
-        e = tf.slice(e, [0,1], [-1,-1])
-
-        return super().update_state(
-            l,
-            1. - e,
-            sample_weight=sample_weight
-        )
-
-
-class ContinuousRecall(tf.keras.metrics.Recall):
-    def __init__(self, top_k=None, label_id=None, name=None, dtype=None, num_labels=2):
-        super().__init__(
-            #thresholds=thresholds,
-            top_k=top_k,
-            class_id=label_id,
-            name=name,
-            dtype=dtype
-        )
-
-        self.n_labels = tf.constant(num_labels, dtype=tf.int32)
-        self.t0 = np.empty(num_labels)
-        self.t1 = np.empty(num_labels)
-        for start, stop, i in windowed_range(self.n_labels):
-            self.t0[i] = start
-            self.t1[i] = stop
-        self.t0 = tf.constant(self.t0, dtype=tf.float32)
-        self.t1 = tf.constant(self.t1, dtype=tf.float32)
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        l = tf.zeros_like(y_true, dtype=tf.int32)
-        for i in range(self.n_labels):
-            t0 = tf.gather(self.t0, [i])
-            t1 = tf.gather(self.t1, [i])
-            l = tf.where(tf.math.logical_and(y_true>t0, y_true<=t1), tf.cast(i, dtype=tf.int32), tf.cast(l, dtype=tf.int32))
-        l = tf.keras.backend.one_hot(l, num_classes=self.n_labels)
-        l = tf.reshape(l, (-1, self.n_labels))
-        l = tf.slice(l, [0,1], [-1,-1])
-
-        e = tf.math.abs(tf.range(self.n_labels, dtype=tf.float32) - (tf.cast(self.n_labels-1, dtype=tf.float32) * y_pred))
-        e = tf.keras.backend.clip(e, 0., 1.)
-        e = tf.reshape(e, (-1, self.n_labels))
-        e = tf.slice(e, [0,1], [-1,-1])
-
-        return super().update_state(
-            l,
-            1. - e,
-            sample_weight=sample_weight
-        )
-
+#--------------------------------------------------------------------------------#
+# Classes                                                                        #
+#--------------------------------------------------------------------------------#
 
 class Trainer:
-    def __init__(self, vitals, labs, loss, metrics, output_signature, min_los_icu, threaded=True, max_threads=2, random_state=None):
+    def __init__(self, vitals, labs, loss, metrics, output_signature, min_los_icu, es_metric='loss', es_mode='min', es_delta=0., threaded=True, max_threads=2, random_state=None):
         '''Creates a new PipeBuilder-object.
 
         PARAMETERS
@@ -228,7 +106,13 @@ class Trainer:
             
             min_los_icu:                        Minimum length of stay in icu in hours (for logging purposes)
 
-            threaded (bool):                    Wheter client-models are trained in parallel threads (default: True)
+            es_metric:                          Metric which is monitored for early stopping (default: 'loss')
+
+            es_mode ['min', 'max']:             Whether minimal or maximal value is considered optimal for early stopping (default: 'min')
+
+            es_delta (float):                   Minimal delta for early stopping improvements (default:0)
+
+            threaded (bool):                    Whether client-models are trained in parallel threads (default: True)
             
             random_state (int):                 Seed for the random generator (default: None)
 
@@ -241,6 +125,10 @@ class Trainer:
         self.threaded = threaded
         self.max_threads = max_threads
         self.random_state = random_state
+
+        self.es_metric = es_metric
+        self.es_mode = es_mode
+        self.es_delta = abs(es_delta)
 
         self.min_los_icu = min_los_icu
         self.split_log = "./splits.json"
@@ -715,7 +603,9 @@ class Trainer:
                     tf.keras.callbacks.LearningRateScheduler(lambda epoch, eta: 0.5*eta if (epoch%5) == 0 and epoch > 0 else eta),
                     tf.keras.callbacks.EarlyStopping(
                         patience=patience,
-                        monitor='val_loss',
+                        monitor='val_'+self.es_metric,
+                        mode=self.es_mode,
+                        min_delta=self.es_delta,
                         restore_best_weights=True
                     )
                 ]
@@ -875,7 +765,7 @@ class Trainer:
             self.global_weights = self.__get_model_weights(clients[1]['model'])
 
             # For each FL-round:
-            best_loss = (np.Inf, -1, None)
+            best_es = (-np.Inf if self.es_mode == 'max' else np.Inf, -1, None)
             for round in range(n_rounds):
 
                 # For each FL-client:
@@ -948,13 +838,13 @@ class Trainer:
                             self.global_weights[i] = [self.global_weights[i][j] + (frac * self.client_weights[client][i][j]) for j in range(len(self.global_weights[i]))]
 
                 # Early stopping:
-                val_loss = self.valid_scores['loss'][fold-1, :, round].mean()
-                if val_loss < best_loss[0]:
-                    best_loss = (val_loss, round, copy.deepcopy(self.global_weights))
-                    print(f'\nEarly stopping [round {round+1:d}]: Best loss {val_loss:.2f} stored for {len(self.global_weights):d} layers')
+                val_es = self.valid_scores[self.es_metric][fold-1, :, round].mean()
+                if val_es > best_es[0] + (self.es_delta if self.es_mode == 'max' else -self.es_delta):
+                    best_es = (val_es, round, copy.deepcopy(self.global_weights))
+                    print(f'\nEarly stopping [round {round+1:d}]: Best {self.es_metric:s} {val_es:.2f} stored for {len(self.global_weights):d} layers')
 
-                elif (round - best_loss[1]) >= patience:
-                    print(f'\nEarly stopping [round {round+1:d}]: Stopping training (Best round: {best_loss[1]+1:d})')
+                elif (round - best_es[1]) >= patience:
+                    print(f'\nEarly stopping [round {round+1:d}]: Stopping training (Best round: {best_es[1]+1:d})')
                     break
 
             print(
@@ -975,7 +865,7 @@ class Trainer:
             )
 
             # Set global model:
-            self.__set_model_weights(m, best_loss[2])
+            self.__set_model_weights(m, best_es[2])
 
             # Evaluate global model:
             data_test = self.build_pipeline(icustays[i_test])
