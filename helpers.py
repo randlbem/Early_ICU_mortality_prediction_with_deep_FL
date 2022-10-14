@@ -839,7 +839,7 @@ class Trainer:
 
                 # Early stopping:
                 val_es = self.valid_scores[self.es_metric][fold-1, :, round].mean()
-                if val_es > best_es[0] + (self.es_delta if self.es_mode == 'max' else -self.es_delta):
+                if ((self.es_mode == 'max') and (val_es > best_es[0] + self.es_delta)) or ((self.es_mode == 'min') and (val_es < best_es[0] - self.es_delta)):
                     best_es = (val_es, round, copy.deepcopy(self.global_weights))
                     print(f'\nEarly stopping [round {round+1:d}]: Best {self.es_metric:s} {val_es:.2f} stored for {len(self.global_weights):d} layers')
 
