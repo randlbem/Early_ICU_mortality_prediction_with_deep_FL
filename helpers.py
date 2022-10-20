@@ -212,7 +212,7 @@ class Trainer:
             # Split validation data:
             i_train, i_valid = train_test_split(
                 split,
-                train_size=0.85,
+                train_size=0.8,
                 stratify=y[split] if stratify else None,
                 shuffle=shuffle,
                 random_state=self.random_state
