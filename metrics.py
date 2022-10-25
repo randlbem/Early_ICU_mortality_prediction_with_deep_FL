@@ -1,3 +1,4 @@
+from os import truncate
 from helpers import windowed_range
 import tensorflow as tf
 import numpy as np
@@ -6,7 +7,29 @@ import numpy as np
 # Functions                                                                      #
 #--------------------------------------------------------------------------------#
 
-def _init_bounds(num_labels):
+def _map_labels(y_true, n, t0, t1):
+    # find class of true label in one-hot-encoding:
+    l = tf.zeros_like(y_true, dtype=tf.int32)
+    for i in range(n):
+        lower = tf.gather(t0, [i])
+        upper = tf.gather(t1, [i])
+        l = tf.where(tf.math.logical_and(y_true>lower, y_true<=upper), tf.cast(i, dtype=tf.int32), tf.cast(l, dtype=tf.int32))
+    l = tf.keras.backend.one_hot(l, num_classes=n)
+    l = tf.reshape(l, (-1, n))
+    l = tf.slice(l, [0,1], [-1,-1])
+
+    return l
+
+def _map_predictions(y_pred, n):
+    # calculate probability of predictions belonging to a class:
+    e = tf.math.abs(tf.range(n, dtype=tf.float32) - (tf.cast(n-1, dtype=tf.float32) * y_pred))
+    e = tf.keras.backend.clip(e, 0., 1.)
+    e = tf.reshape(e, (-1, n))
+    e = tf.slice(e, [0,1], [-1,-1])
+
+    return 1-e
+
+def _init_graphs(num_labels):
     # create empty numpy arrays for bounds:
     t0 = np.empty(num_labels)
     t1 = np.empty(num_labels)
@@ -16,27 +39,22 @@ def _init_bounds(num_labels):
         t0[i] = start
         t1[i] = stop
 
-    # convert arays to tensorflow:
-    return tf.constant(num_labels, dtype=tf.int32), tf.constant(t0, dtype=tf.float32), tf.constant(t1, dtype=tf.float32)
+    # create graph fuctions:
+    map_labels = tf.function(
+        func=lambda y_true: _map_labels(y_true, num_labels, tf.constant(t0, dtype=tf.float32), tf.constant(t1, dtype=tf.float32)),
+        #input_signature=None,
+        #autograph=True,
+        jit_compile=truncate
+    )
+    map_predictions = tf.function(
+        func=lambda y_pred: _map_predictions(y_pred, num_labels),
+        #input_signature=None,
+        #autograph=True,
+        jit_compile=True
+    )
 
-def _to_one_hot(y_true, y_pred, t0, t1, n_labels):
-    # find class of true label in one-hot-encoding:
-    l = tf.zeros_like(y_true, dtype=tf.int32)
-    for i in range(n_labels):
-        lower = tf.gather(t0, [i])
-        upper = tf.gather(t1, [i])
-        l = tf.where(tf.math.logical_and(y_true>lower, y_true<=upper), tf.cast(i, dtype=tf.int32), tf.cast(l, dtype=tf.int32))
-    l = tf.keras.backend.one_hot(l, num_classes=n_labels)
-    l = tf.reshape(l, (-1, n_labels))
-    l = tf.slice(l, [0,1], [-1,-1])
-
-    # calculate error of prediction for each class:
-    e = tf.math.abs(tf.range(n_labels, dtype=tf.float32) - (tf.cast(n_labels-1, dtype=tf.float32) * y_pred))
-    e = tf.keras.backend.clip(e, 0., 1.)
-    e = tf.reshape(e, (-1, n_labels))
-    e = tf.slice(e, [0,1], [-1,-1])
-
-    return l, 1-e
+    # return functions:
+    return map_labels, map_predictions
 
 #--------------------------------------------------------------------------------#
 # Classes                                                                        #
@@ -58,16 +76,13 @@ class ContinuousAUC(tf.keras.metrics.AUC):
             from_logits=from_logits
         )
 
-        # init labels and boundaries:
-        self.n_labels, self.t0, self.t1 = _init_bounds(num_labels)
+        # init tf graphs:
+        self.map_labels, self.map_predictions = _init_graphs(num_labels)
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        # create one-hot-representation:
-        true, pred = _to_one_hot(y_true, y_pred, self.t0, self.t1, self.n_labels)
-
         return super().update_state(
-            true,
-            pred,
+            self.map_labels(y_true),
+            self.map_predictions(y_pred),
             sample_weight=sample_weight
         )
 
@@ -83,16 +98,13 @@ class ContinuousPrecision(tf.keras.metrics.Precision):
             dtype=dtype
         )
 
-        # init labels and boundaries:
-        self.n_labels, self.t0, self.t1 = _init_bounds(num_labels)
+        # init tf graphs:
+        self.map_labels, self.map_predictions = _init_graphs(num_labels)
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        # create one-hot-representation:
-        true, pred = _to_one_hot(y_true, y_pred, self.t0, self.t1, self.n_labels)
-
         return super().update_state(
-            true,
-            pred,
+            self.map_labels(y_true),
+            self.map_predictions(y_pred),
             sample_weight=sample_weight
         )
 
@@ -108,16 +120,13 @@ class ContinuousRecall(tf.keras.metrics.Recall):
             dtype=dtype
         )
 
-        # init labels and boundaries:
-        self.n_labels, self.t0, self.t1 = _init_bounds(num_labels)
+        # init tf graphs:
+        self.map_labels, self.map_predictions = _init_graphs(num_labels)
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        # create one-hot-representation:
-        true, pred = _to_one_hot(y_true, y_pred, self.t0, self.t1, self.n_labels)
-
         return super().update_state(
-            true,
-            pred,
+            self.map_labels(y_true),
+            self.map_predictions(y_pred),
             sample_weight=sample_weight
         )
 
@@ -145,8 +154,8 @@ class ContinuousF1(tf.keras.metrics.Metric):
             dtype=dtype
         )
 
-        # init labels and boundaries:
-        self.n_labels, self.t0, self.t1 = _init_bounds(num_labels)
+        # init tf graphs:
+        self.map_labels, self.map_predictions = _init_graphs(num_labels)
 
     def reset_state(self):
         self.precision.reset_state()
@@ -154,7 +163,8 @@ class ContinuousF1(tf.keras.metrics.Metric):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         # create one-hot-representation:
-        true, pred = _to_one_hot(y_true, y_pred, self.t0, self.t1, self.n_labels)
+        true = self.map_labels(y_true)
+        pred = self.map_predictions(y_pred)
 
         self.precision.update_state(true, pred, sample_weight=sample_weight)
         self.recall.update_state(true, pred, sample_weight=sample_weight)
