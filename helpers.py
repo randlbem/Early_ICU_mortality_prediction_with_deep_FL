@@ -2,6 +2,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 from imblearn.over_sampling import RandomOverSampler
 from threading import Thread, Lock
 from contextlib import redirect_stdout
+from os.path import exists
 import tensorflow as tf
 import numpy as np
 import pickle
@@ -88,7 +89,7 @@ def stratified_split(data, n_splits, stratify=None, shuffle=False, random_state=
 #--------------------------------------------------------------------------------#
 
 class DataBuilder:
-    def __init__(self, icustays, vitals, labs, random_state=None):
+    def __init__(self, icustays, vitals, labs, key='icustay_id', random_state=None):
         '''Creates a new DataBuilder Object and initializes normaization based on a list of ICU-stays.
 
         PARAMETERS
@@ -98,6 +99,8 @@ class DataBuilder:
 
             labs (pd.DataFrameGroupBy):         Labs grouped by key
             
+            key (string):                       Name of the column to be used as key (default: 'icustay_id')
+
             random_state (int):                 Seed for the random generator (default: None)
         '''
         # Only possible if icustays not empty:
@@ -107,6 +110,7 @@ class DataBuilder:
         # Save properties:
         self.vitals = vitals
         self.labs = labs
+        self.key = key
         self.random_state = random_state
 
         # Init iteration variables:
@@ -149,9 +153,9 @@ class DataBuilder:
 
         for icustay, label in icustays:
             # Extract vitals:
-            v = flatten(self.vitals.get_group(icustay).drop('icustay_id', axis=1).to_numpy())
+            v = flatten(self.vitals.get_group(icustay).drop(self.key, axis=1).to_numpy())
             # Extract lab-values:
-            l = flatten(self.labs.get_group(icustay).drop('icustay_id', axis=1).to_numpy())
+            l = flatten(self.labs.get_group(icustay).drop(self.key, axis=1).to_numpy())
 
             # Create label-tensor:
             y = tf.constant(label, dtype=tf.dtypes.float64, shape=1)
@@ -447,8 +451,20 @@ class TrainerBase:
     def _get_model_weights(self, model):
         return [layer.get_weights() for layer in model.layers]
 
+    def _init_model_weights(self, model, path='./data/default_weights.h5'):
+        # If default weights were previously stored, load them:
+        if exists(path):
+            model.load_weights(path)
+
+        # If not, save the current model weights as default:
+        else:
+            model.save_weights(path)
+
+        # Finally update the global weights:
+        self.global_weights = self._get_model_weights(model)
+
     def _enqueue_console(self, client, text):
-        self.console_buffer[client-1] += text
+        self.console_buffer[client-1] += text + '\n'
 
     def _flush_console(self):
         for i in range(len(self.console_buffer)):
@@ -543,7 +559,7 @@ class TrainerBase:
 
             key (string):               Name of the column to be used as key (default: 'icustay_id')
 
-            primary_key (string):       Name of the column to be used as label (default: 'label_death_icu')
+            label (string):             Name of the column to be used as label (default: 'label_death_icu')
         '''
         print(f'Importing data...')
 
@@ -556,12 +572,17 @@ class TrainerBase:
         # Group labs by key:
         self.labs  = labs.drop(label, axis=1).groupby([key])
 
+        # Save key:
+        self.key = key
+
         # Reset results:
         self.reset()
 
         print(f'Done. Imported {len(self.icustays):d} patients.')
         print(f'key:    {key:s}')
         print(f'label:  {label:s}')
+        print(f'vitals: {", ".join(self.vitals.get_group(self.icustays[0,0]).drop(key, axis=1).columns):s}')
+        print(f'labs:   {", ".join(self.labs.get_group(self.icustays[0,0]).drop(key, axis=1).columns):s}')
 
 
 class Trainer(TrainerBase):
@@ -706,12 +727,15 @@ class Trainer(TrainerBase):
                 local_model.compile(
                     loss=self.loss,
                     optimizer=tf.keras.optimizers.Adam(0.01),
-                    metrics= self.metrics
+                    metrics=self.metrics
                 )
+
+                # Load starting weights:
+                self._init_model_weights(local_model)
 
                 # Build train- and validation pipelines:
                 with redirect_stdout(io.StringIO()) as out:
-                    builder = DataBuilder(self.icustays[np.concatenate((i_train, i_valid), axis=None)], self.vitals, self.labs, random_state=self.random_state)
+                    builder = DataBuilder(self.icustays[np.concatenate((i_train, i_valid), axis=None)], self.vitals, self.labs, key=self.key, random_state=self.random_state)
                     data_train = builder.build_pipeline(self.icustays[i_train], self.output_signature, batch_size=self.batch_size, n_labels=n_labels, oversample=oversample, weighted=weighted)
                     data_valid = builder.build_pipeline(self.icustays[i_valid], self.output_signature, batch_size=self.batch_size, n_labels=n_labels)
                     data_test =  builder.build_pipeline(self.icustays[i_test],  self.output_signature, batch_size=self.batch_size, n_labels=n_labels)
@@ -882,7 +906,7 @@ class TrainerFL(TrainerBase):
         for i_rest, i_test, fold in self._split_test(n_labels=n_labels, shuffle=shuffle):
             
             # New normalization bounds:
-            builder = DataBuilder(self.icustays[i_rest], self.vitals, self.labs, random_state=self.random_state)
+            builder = DataBuilder(self.icustays[i_rest], self.vitals, self.labs, key=self.key, random_state=self.random_state)
 
             # Log fold:
             log_buffer  =  '    {\n'
@@ -893,6 +917,7 @@ class TrainerFL(TrainerBase):
             # Build client data splits:
             clients = {}
             for i_train, i_valid, client in self._split_valid(i_rest, n_labels=n_labels, shuffle=shuffle, stratify=stratify_clients):
+                # Print header:
                 print(
                     f'\n---------------------------------------------------------------------------' +
                     f'\nCross-validation iteration {fold:d}/{self.n_folds:d}; Client {client:d}/{self.n_clients:d}' +
@@ -923,6 +948,9 @@ class TrainerFL(TrainerBase):
                     metrics=self.metrics
                 )
 
+                # Init model weights:
+                self._init_model_weights(clients[client]['model'])
+
             # Close fold in log:
             with open(self.split_log, 'at') as log:
                 log.write( log_buffer)
@@ -930,13 +958,9 @@ class TrainerFL(TrainerBase):
                 log.write( '    }' +  (',\n' if fold < self.n_folds else '\n'))
             del log_buffer
 
-            # Init global model weights:
-            self.global_weights = self._get_model_weights(clients[1]['model'])
-
             # For each FL-round:
             best_es = (-np.Inf if self.es_mode == 'max' else np.Inf, -1, None)
             for round in range(self.n_steps):
-
                 # Print header:
                 print(
                     f'\n---------------------------------------------------------------------------' +
@@ -946,13 +970,9 @@ class TrainerFL(TrainerBase):
 
                 # Train models:
                 for client in clients:
-
-                    # Set model weights:
-                    self._set_model_weights(clients[client]['model'], self.global_weights)
-
                     # Print header:
                     if self.threads == None:
-                        print(f'\nTraining Client {client:d}/{self.n_clients:d}:')
+                        print(f'\nTraining client {client:d}/{self.n_clients:d}:')
 
                     # Callbacks:
                     callbacks=[
@@ -994,7 +1014,7 @@ class TrainerFL(TrainerBase):
                     self._set_model_weights(clients[client]['model'], self.global_weights)
 
                     # Print header:
-                    self._enqueue_console(client, f'\nValidation Client {client:d}/{self.n_clients:d}:')
+                    self._enqueue_console(client, f'\nValidation client {client:d}/{self.n_clients:d}:')
 
                     # Validate each client in its own thread:
                     self._add_thread(
@@ -1026,7 +1046,7 @@ class TrainerFL(TrainerBase):
                 f'\nCross-validation iteration {fold:d}/{self.n_folds:d}; Global Model' +
                 f'\nTest size = {len(i_test):d}' +
                 f'\nBatch size = {self.batch_size:d}' +
-                f'\n---------------------------------------------------------------------------\n'
+                f'\n---------------------------------------------------------------------------'
             )
 
             # Copy model:
