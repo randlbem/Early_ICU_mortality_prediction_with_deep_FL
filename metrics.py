@@ -44,7 +44,7 @@ def _init_graphs(num_labels):
         func=lambda y_true: _map_labels(y_true, num_labels, tf.constant(t0, dtype=tf.float32), tf.constant(t1, dtype=tf.float32)),
         #input_signature=None,
         #autograph=True,
-        jit_compile=truncate
+        jit_compile=True
     )
     map_predictions = tf.function(
         func=lambda y_pred: _map_predictions(y_pred, num_labels),
