@@ -12,13 +12,13 @@ This folder houses the validation scores, test scores, and predictions for the t
 The following tables contain the complete test-scores of the experiments performed for the paper.
 
 ![Table 1](https://github.com/randlbem/Early_ICU_mortality_prediction_with_deep_FL/blob/main/scores/tables/table1.svg)
-<p style="text-align: center;">**Table 1:** early stopping with min. loss ($\Delta t_{min} = 24~h$).</p>
+**Table 1:** Early stopping with min. loss ( $\Delta t_{min} = 24~h$ ).
 
 ![Table 2](https://github.com/randlbem/Early_ICU_mortality_prediction_with_deep_FL/blob/main/scores/tables/table2.svg)
-<p style="text-align: center;">**Table 2:** early stopping with max. F1 ($\Delta t_{min} = 24~h$).</p>
+**Table 2:** early stopping with max. F1 ( $\Delta t_{min} = 24~h$ ).
 
 ![Table 3](https://github.com/randlbem/Early_ICU_mortality_prediction_with_deep_FL/blob/main/scores/tables/table3.svg)
-<p style="text-align: center;">**Table 3:** early stopping with min. loss ($\Delta t_{min} = 48~h$).</p>
+**Table 3:** early stopping with min. loss ( $\Delta t_{min} = 48~h$ ).
 
 ## Disclaimer
 
