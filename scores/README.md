@@ -2,7 +2,7 @@
 
 This folder houses the validation scores, test scores, and predictions for the tests we present in the thesis. Each pickle file in there relates to a single test run performed with five-fold cross-validation. The files are named according to the following convention:
 
-  scores\_[*labeling*]\_[*number of clients*]\_[*history length*](*minimum ICU stay length*).pickle
+  scores\_[*labeling*]\_[*number of clients*]\_[*history length*]([*minimum ICU stay length*]).pickle
 
 - The folder *min24h* contains the results of the experiments on the cohort with $\Delta t_{min} = 24~h$
 - The folder *min48h* contains the results of the experiments on the cohort with $\Delta t_{min} = 48~h$
