@@ -1,5 +1,5 @@
 from os import truncate
-from helpers import windowed_range
+from .helpers import windowed_range
 import tensorflow as tf
 import numpy as np
 
