@@ -1,8 +1,8 @@
-# Early_ICU_mortality_prediction_with_deep_FL/sql
+# Early_ICU_mortality_prediction_with_deep_FL
 
-This repository houses the code used in our thesis, "Early prediction of the risk of ICU mortality with Deep Federated Learning". All code is our own apart from the notebook *mimic_iii_preprocessing.ipynb*, which we took and adapted from Mondrejevski et al. (2022) and is used to preprocess the raw data.
+This repository houses the code used in our paper, [‘Early prediction of the risk of ICU mortality with Deep Federated Learning’](http://arxiv.org/abs/2212.00554). All code is our own apart from the notebook *mimic_iii_preprocessing.ipynb*, which we took and adapted from Mondrejevski et al. (2022) and is used to preprocess the raw data.
 
-- The file *mimic_iii_windowing.ipynb* provides both window selection and labeling steps.
+- The file *mimic_iii_windowing.ipynb* provides steps for selecting the patient history.
 - The file *model.ipynb* was used for training and evaluating the models.
 - The folder *analysis* contains jupyter-notebooks we used for analysing the data and creating plots and tables.
 - The folder *assets* contains classes and functions needed for training and evaluating the model.
@@ -38,7 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.*
 
 _____________________________________________________________________________________________
 [Mondrejevski, L., Miliou, I., Montanino, A., Pitts, D., Hollmén, J. & Papapetrou, P. (2022),
-‘FLICU: A federated learning workflow for intensive care unit mortality prediction’.](https://arxiv.org/abs/2205.15104 "FLICU: A federated learning workflow for intensive care unit mortality prediction")
+‘FLICU: A federated learning workflow for intensive care unit mortality prediction’.](https://ieeexplore.ieee.org/document/9866963 "FLICU: A federated learning workflow for intensive care unit mortality prediction")
 
 [Johnson, A. E. W., Pollard, T. J. & Mark, R. G. (2016), ‘Mimic-iii clinical database (version 1.4)’,
 PhysioNet.](https://doi.org/10.13026/C2XW26 "Mimic-iii clinical database (version 1.4)")
